@@ -105,7 +105,7 @@ public interface BlogRepository extends JpaRepository<Article, Long> {
 
 ---
 
-# ✅ 블로그 글 작성을 위한 API 구현하기
+# ✅ 블로그 글 작성 API
 
 ## 서비스 메서드 코드 작성하기
 - 서비스 계층에서 요청을 받을 객체 생성 (AddArticleRequest)
@@ -258,3 +258,100 @@ class BlogApiControllerTest {
   - assertThat(articles.title()).contains("제");
 
 ---
+
+# ✅ 블로그 글 목록 조회 API
+
+## 서비스 메서드 코드
+BlogService.java
+```
+@RequiredArgsConstructor
+@Service
+public class BlogService {
+  
+  private final BlogRepository blogRepository;
+  
+  ... 생략 ...
+  
+  public List<Article> findAll() {
+    return blogRepository.findAll();
+  }
+}
+```
+
+## 컨트롤러 메서드 코드
+ArticleResponse.java
+```
+@Getter
+public class ArticleResponse {
+  
+  private final String title;
+  private final String content;
+  
+  public ArticleResponse(Article article) {
+    this.title = article.getTitle();
+    this.content = article.getContent();
+  }
+}
+```
+
+BlogApiController.java
+```
+@RequiredArgsConstructor
+@RestController // HTTP Response Body에 객체 데이터를 JSON 형식으로 반환하는 컨트롤러
+public class BlogApiController {
+
+  private final BlogService blogService;
+  
+  ... 생략 ...
+  
+  @GetMapping("/api/articles")
+  public ResponseEntity<List<ArticleResponse>> findAllArticles() {
+    List<ArticleResponse> articles = blogService.findAll()
+              .stream()
+              .map(ArticleResponse::new)
+              .toList();
+    
+    return ResponseEntity.ok()
+              .body(articles);
+  }
+}
+```
+
+## 테스트 코드
+- given: 블로그 글을 저장합니다.
+- when: 목록 조회 API를 호출합니다.
+- then: 응답 코드가 200 OK이고, 반환받은 값 중에 0번째 요소의 content와 title이 저장된 값과 같은지 확인합니다.
+
+BlogApiControllerTest.java
+```
+@SpringBootTest
+@AutoConfigureMockMvc
+class BlogApiControllerTest {
+
+  ... 생략 ...
+  
+  @DisplayName("findAllArticles: 블로그 글 목록 조회에 성공한다.")
+  @Test
+  public void findAllArticles() throws Exception {
+    // given
+    final String url = "/api/articles";
+    final String title = "title";
+    final String content = "content";
+    
+    blogRepository.save(Article.builder()
+            .title(title)
+            .content(content)
+            .build();
+    
+    // when
+    final ResultActions resultActions = mockMvc.perform(get(url)
+            .accept(MediaType.APPLICATION_JSON));
+    
+    // then
+    resultActions
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("[0].content").value(content)
+            .andExpect(jsonPath("[0].title").value(title));
+  }
+}
+```

@@ -186,6 +186,9 @@ public class BlogApiController {
   - 500 Internal Server Error: 서버 상에 문제가 있어 요청에 실패했음
 
 ## 테스트 코드 작성하기
+- given: 블로그 글 추가에 필요한 요청 객체를 만듭니다.
+- when: 블로그 글 추가 API에 요청을 보낸다. 이때 요청 타입은 JSON이며, given절에서 미리 만들어 둔 객체를 요청 본문으로 함께 보냅니다.
+- then: 응답 코드가 201 Created인지 확인합니다. Blog를 전체 조회해 크기가 1인지 확인하고, 실제로 저장된 데이터와 요청 값을 비교합니다.
 BlogApiControllerTest.java
 ```
 @SpringBootTest // 테스트용 애플리케이션 컨텍스트
@@ -241,14 +244,17 @@ class BlogApiControllerTest {
 }
 ```
 
-- ObjectMapper
-  - 자바 객체를 JSON 데이터로 변환하는 직렬화 또는 반대인 역직렬화를 할 때 사용
-- writeValueString()
-  - 객체를 JSON으로 직렬화
-- MockMvc
-  - HTTP 메서드, URL, 요청 본문, 요청 타입을 설정
-  - contentType()에 요청을 보낼 때 JSON, XML 등 다양한 타입 중 하나를 골라 요청을 보냄
-- assertThat 메서드
+ObjectMapper
+- 자바 객체를 JSON 데이터로 변환하는 직렬화 또는 반대인 역직렬화를 할 때 사용
+
+writeValueAsString()
+- 객체를 JSON으로 직렬화
+
+MockMvc
+- HTTP 메서드, URL, 요청 본문, 요청 타입을 설정
+- contentType()에 요청을 보낼 때 JSON, XML 등 다양한 타입 중 하나를 골라 요청을 보냄
+
+assertThat 메서드
   - assertThat(articles.size()).isEqualTo(1);
   - assertThat(articles.size()).isGreaterThan(2);
   - assertThat(articles.size()).isLessThan(5);
@@ -355,3 +361,279 @@ class BlogApiControllerTest {
   }
 }
 ```
+
+---
+
+# ✅ 블로그 글 조회 API
+
+## 서비스 메서드 코드
+BlogService.java
+```
+@RequiredArgsConstructor
+@Service
+public class BlogService {
+
+  ... 생략 ...
+  
+  public Article findById(long id) {
+    return blogRepository.findById(id)
+        .orElseThrow(() -> new IllegalArgumentException("not found: " + id));
+  }
+}  
+```
+
+## 컨트롤러 메서드 코드
+BlogApiController.java
+```
+@RequiredArgsConstructor
+@RestController
+public class BlogApiController {
+
+  ... 생략 ...
+  @GetMapping("/api/articles/{id}")
+  // URL 경로에서 값 추출
+  public ResponseEntity<ArticleResponse> findArticle(@PathVariable long id) {
+    Article article = blogService.findById(id);
+    
+    return ResponseEntity.ok()
+            .body(new ArticleResponse(article));
+  }
+}
+```
+
+## 테스트 코드
+- given: 블로그 글을 저장합니다.
+- when: 저장한 블로그 글의 id값으로 API를 호출합니다.
+- then: 응답 코드가 200 OK이고, 반환받은 content와 title이 저장된 값과 같은지 확인합니다.
+```
+@SpringBootTest
+@AutoConfigureMockMvc
+class BlogApiControllerTest {
+
+  ... 생략 ...
+  
+  @DisplayName("findArticle: 블로그 글 조회에 성공한다.");
+  @Test
+  public void findArticle() throws Exception {
+    // given
+    final String url = "api/articles/{id}";
+    final String title = "title";
+    final String content = "content";
+    
+    Article savedArticle = blogRepository.save(Article.builder()
+            .title(title)
+            .content(content)
+            .build());
+    
+    // when
+    final ResultActions resultActions = mockMvc.perform(get(url, savedArticle.getId()));
+    
+    // then
+    resultActions
+            .andExpect(status.isOk())
+            .andExpect(jsonPath("$.content").value(content))
+            .andExpect(jsonPath("$.title").value(title));
+  }
+}
+```
+
+---
+
+# ✅ 블로그 글 삭제 API
+
+## 서비스 메서드 코드
+BlogService.java
+```
+@RequiredArgsConstructor
+@Service
+public class BlogService {
+  
+  ... 생략 ...
+  
+  public void delete(long id) {
+    blogRepository.deleteById(id);
+  }
+}
+```
+
+## 컨트롤러 메서드 코드
+BlogApiController.java
+```
+@RequiredArgsConstructor
+@RestController
+public class BlogApiController {
+
+  private final BlogService blogService;
+  
+  ... 생략 ...
+  
+  @DeleteMapping("/api/articles/{id}")
+  public ResponseEntity<Void> deleteArticle(@PathVariable long id) {
+    blogService.delete(id);
+    
+    return ResponseEntity.ok().build();
+  }
+}
+```
+
+## 테스트 코드
+- given: 블로그 글을 저장합니다.
+- when: 저장한 블로그 글의 id값으로 삭제 API를 호출합니다.
+- then: 응답 코드가 200 OK이고, 블로그 글 리스트를 전체 조회해 조회한 배열 크기가 0인지 확인합니다.
+
+```
+@SpringBootTest
+@AutoConfigureMockMvc
+class BlogApiControllerTest {
+  
+  ... 생략 ...
+  
+  @DisplayName("deleteArticle: 블로그 글 삭제에 성공한다.")
+  @Test
+  public void deleteArticle() throws Exception {
+    // given
+    final String url = "api/articles/{id}";
+    final String title = "title";
+    final String content = "content";
+    
+    Article savedArticle = blogRepository.save(Article.builder()
+            .title(title)
+            .content(content)
+            .build();
+    
+    // when
+    mockMvc.perform(delete(url, savedArticle.getId()))
+           .andExpect(status.isOk());
+           
+    // then
+    List<Article> articles = blogRepository.findAll();
+    
+    assertThat(articles).isEmpty();
+  }
+}
+```
+
+---
+
+# ✅ 블로그 글 수정 API
+
+## 서비스 메서드 코드
+Article.java
+```
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Getter
+@Entity
+public class Article {
+
+  ... 생략 ...
+  
+  public void update(String title, String content) {
+    this.title = title;
+    this.content = content;
+  }
+}
+```
+
+UpdateArticleRequest.java
+```
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+public class UpdateArticleRequest {
+  private String title;
+  private String content;
+}
+```
+
+BlogService.java
+```
+@RequriedArgsConstructor
+@Service
+public class BlogService {
+  
+  ... 생략 ...
+  
+  @Transactional
+  public Article update(long id, UpdateArticleRequest request) {
+    Article article = blogRepository.findById(id)
+          .orElseThrow(() -> new IllegalArgumentException("not found: " + id));
+    
+    article.update(request.getTitle(), request.getContent());
+    
+    return article;
+  }
+}
+```
+@Transactional
+- 메서드를 하나의 트랜잭션으로 묶는 역할
+- update() 메서드는 엔티티의 필드 값이 바뀌면 중간에 에러가 발생해도 제대로 된 수정을 보장함
+
+## 컨트롤러 메서드 코드
+BlogApiController.java
+```
+@RequiredArgsConstructor
+@RestController
+public class BlogApiController {
+  
+  private final BlogService blogService;
+  
+  ... 생략 ...
+  
+  @PutMapping("/api/articles/{id}")
+  public ResponseEntity<Article> updateArticle(@PathVariable long id,
+      @RequestBody UpdateArticleRequest request) {
+    Article updatedArticle = blogService.update(id, request);
+    
+    return ResponseEntity.ok().body(updatedArticle);
+  }
+}
+```
+
+## 테스트 코드
+- given: 블로그 글을 저장하고, 블로그 글 수정에 필요한 요청 객체를 만듭니다.
+- when: UPDATE API로 수정 요청을 보냅니다. 이때 요청 타입은 JSON이며 given절에서 미리 만들어둔 객체를 요청 본문으로 함께 보냅니다.
+- 응답 코드가 200 OK인지 확인합니다. 블로그 글 id로 조회한 후에 값이 수정되었는지 확인합니다.
+
+BlogApiControllerTest.java
+```
+@SpringBootTest
+@AutoConfigureMockMvc
+class BlogApiControllerTest {
+  
+  ... 생략 ...
+  
+  @DisplayName("updateArticle: 블로그 글 수정에 성공한다.")
+  @Test
+  public void updateArticle() throws Exception {
+    
+    // given
+    final String url = "/api/articles/{id}";
+    final String title = "title";
+    final String content = "content";
+    
+    Article savedArticle = blogRepository.save(Article.builder()
+          .title(title)
+          .content(content)
+          .build();
+    
+    final String newTitle = "new title";
+    final String newContent = "new content";
+    
+    UpdateArticleRequest request = new UpdateArticleRequest(newTitle, newContent);
+    
+    // when
+    ResultActions result = mockMvc.perform(put(url, savedArticle.getId())
+        .contentType(MediaType.APPLICATION_JSON_VALUE)
+        .content(objectMapper.writeValueAsString(request)));
+        
+    // then
+    result.andExpect(status().isOk());
+    
+    Article article = blogRespotiry.findById(savedArticle.getId()).get();
+    
+    assertThat(article.getTitle()).isEqualTo(newTitle);
+    assertThat(article.getContent()).isEqualtTo(newContent);
+  }
+}
+```
+

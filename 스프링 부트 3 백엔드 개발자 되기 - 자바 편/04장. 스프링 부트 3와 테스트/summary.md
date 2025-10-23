@@ -165,7 +165,7 @@ AssertJ의 다양한 메서드
 # ✅ 제대로 테스트 코드 작성하기
 
 ```
-@SpringBootTest // 테스트용 애플리케이션 컨텍스트 생성
+@SpringBootTest // 테스트용 애플리케이션 컨텍스트 생성 
 @AutoConfigureMockMvc // MockMvc 생성
 class TestControllerTest {
   

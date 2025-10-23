@@ -142,7 +142,7 @@ spring:
     show-sql: true
     properties:
       hibernate:
-        format_sql: true
+        format_sql: true 
     
     defer-datasource-initialization: true
 ```

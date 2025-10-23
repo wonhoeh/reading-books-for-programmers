@@ -74,7 +74,7 @@
 
 ```
 public class A extends B {
-    @Override // 선언된 메서드가 오버라이드 되었음을 나타내는 애너테이션
+    @Override // 선언된 메서드가 오버라이드 되었음을 나타내는 애너테이션 
     public void print() {
         System.out.println("Hello, World!");
     }

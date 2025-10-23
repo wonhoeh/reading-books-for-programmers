@@ -267,7 +267,7 @@ assertThat 메서드
 
 # ✅ 블로그 글 목록 조회 API
 
-## 서비스 메서드 코드
+## 서비스 메서드 코드 
 BlogService.java
 ```
 @RequiredArgsConstructor

@@ -299,3 +299,11 @@ public class TokenProvider {
     }
 }
 ```
+
+## Jwts.parser() 의 역할
+- `Jwts.builder()` 토큰을 생성하는 역할
+- `Jwts.parser()` 토큰을 읽고(파싱하고) 검증하는 역할
+  - Header.Payload.Signature로 분리
+  - Base64Url 디코딩해서 JSON 형태로 복원
+  - setSigningKey(secretKey)로 서명을 검증해서 토큰 위조 여부 확인
+  - Payload 안의 클레임(사용자 정보, 만료 시간 등)을 꺼내주는 과정

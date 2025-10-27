@@ -7,19 +7,23 @@
 - 클라이언트는 여러 요청을 이 토큰과 함께 신청함
 - 서버는 토큰만 보고 유효한 사용자인지 검증
 
+<br>
+
 ## 토큰을 전달하고 인증 받는 과정
 
 - [클라이언트 → 서버] 아이디와 비밀번호를 전달하면서 인증을 요청
-- [서버 → 클라이언트] 유효한 사용자인지 검증하고 유효한 사용자면 토큰을 생성해서 응답
-- [클라이언트 → 서버] 클라이언트는 서버에서 준 토큰을 저장하고 인증이 필요한 API 요청할 때 토큰을 함께 보냄
-- [서버 → 클라이언트] 토큰이 유효한지 검증하고 유효하면 클라이언트가 요청한 내용을 처리
+- [서버 → 클라이언트] 유효한 사용자인지 검증하고 토큰을 생성해서 응답
+- [클라이언트 → 서버] 클라이언트는 응답 받은 토큰을 저장. 인증이 필요한 API 요청할 때 토큰을 함께 보냄
+- [서버 → 클라이언트] 토큰이 유효한지 검증하고 클라이언트가 요청한 내용을 처리
+
+<br>
 
 ## 토큰 기반 인증의 특징
 
 ### 무상태성
 
 - 인증 정보가 담겨 있는 토큰이 클라이언트에 저장되어 있음
-- 클라이언트에서 사용자의 인증 상태를 유지하면서 요청을 처리해야함 이것을 상태를 관리한다고 함
+- 클라이언트에서 사용자의 인증 상태를 유지하면서 요청을 처리해야함. 이것을 상태를 관리한다고 함
 - 서버는 인증 정보를 저장하거나 유지하지 않아도 되기 때문에 무상태로 검증을 할 수 있음
 
 ### 확장성
@@ -33,13 +37,13 @@
 - 토큰을 발급한 이후에 토큰 정보를 변경하는 행위를 할 수 없기 때문에 토큰의 무결성이 보장됨
 - 토큰이 수정되면 유효하지 않은 토큰이라고 판단
 
-## JWT
+<br>
 
-- 발급받은 JWT를 이용해 인증을 하려면 HTTP 요청 헤더에 Authorization 키 값에 Bearer + JWT 토큰값을 넣어 보내야함
+## JWT
+- 발급받은 JWT를 이용해 인증을 하려면 HTTP 요청 헤더에 `Authorization` : `Bearer + JWT 토큰값`을 넣어 보내야함
 
 ### JWT 구조
-
-`aaaaa.bbbbbb.cccccc  헤더.내용.서명`
+`Bearer aaaaa.bbbbbb.cccccc`  `헤더.내용.서명`
 
 | 부분 | 의미 | 설명 |
 | --- | --- | --- |
@@ -64,15 +68,14 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
 
 ```
 
-### 검증 절차
+### 유효한 토큰인지 검증 절차
 
-- 클라이언트가 보낸 JWT 문자열을 .로 분리: header_b64.payload_b64.signature_b64
-- header_b64와 payload_b64를 Base64Url 디코딩하면 각각 JSON이 나온다. (이때 비밀키 필요 없음)
-  → 이건 단순 디코딩이지 복호화가 아님.
-- 서버는 header_b64 + "." + payload_b64와 서버가 가지고 있는 secretKey를 이용해 동일한 알고리즘(HMACSHA256 등)으로 서명(signature') 을 생성한다.
-- 생성한 서명 signature'를 Base64Url로 인코딩한 값과 토큰의 signature_b64를 비교한다.
-    - → 같으면 토큰이 발행된 이후 변조되지 않았다는 뜻(서명 무결성 통과).
-    - → 다르면 위조/변조이므로 거부.
+- 클라이언트가 보낸 JWT 문자열을 .로 분리 (header_b64.payload_b64.signature_b64)
+- `header`와 `payload`를 `Base64Url` 디코딩 JSON 형태로 변환
+- `header`와 `payload`를 서버가 가지고 있는 secretKey를 이용해 동일한 알고리즘으로 서명을 생성
+- 생성한 서명을 Base64Url로 인코딩한 값과 토큰의 서명값을 비교
+    - 같으면 토큰이 발행된 이후 변조되지 않았다는 뜻(서명 무결성 통과)
+    - 다르면 위조/변조이므로 거부
 - 서명이 통과하면 Payload의 클레임들을 검사:
 - exp 만료시간 체크 (현재시간 < exp)
 - nbf, iat, aud, iss 등 필요한 표준 클레임 검증
@@ -86,7 +89,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
 - 앞의 두 부분(Header, Payload)은 실제 JSON
 - 그냥 JSON을 문자열로 넣으면 깨질 수 있으니 Base64Url 인코딩을 적용해서 사람이 못 알아보는 문자열로 바꾼 것
 - 디코딩해서 원래 내용을 볼 수 있음
-- JSON을 Base64로 인코딩해서 변환한 것
+- JSON을 Base64Url 인코딩해서 변환한 것
 
 ### 서명
 
@@ -155,7 +158,7 @@ JWT 예
 7. [서버 → 클라이언트] 토큰이 만료되었다는 에러를 전달
 8. [클라이언트 → 서버] 리프레시 토큰으로 새로운 액세스 토큰 발급을 요청
 9. [서버 → 데이터베이스] DB에서 리프레시 토큰을 조회해 유효한 토큰인지 확인
-10. [서버 → 클라이언트] 유효한 리프레시 토큰이면 새로운 엑세스 토큰을 발급
+10. [서버 → 클라이언트] 유효한 리프레시 토큰이면 새로운 액세스 토큰을 발급
 
 ---
 
@@ -182,6 +185,8 @@ dependencies {
 }
 
 ```
+
+<br>
 
 ## 토큰 제공자 추가
 
@@ -448,6 +453,8 @@ public class JwtFactory {
 }
 ```
 
+<br>
+
 ### test/config/jwt/TokenProvider.java
 
 ```
@@ -580,6 +587,7 @@ void generateToken() {
 - when: `TokenProvider.generateToken()` 메서드로 토큰 생성
 - then: 토큰을 복호화해서 꺼낸 클레임의 userId와 testUser의 userId가 같은지 확인
 
+<br>
 
 ### invalidToken() 검증 테스트
 ```
@@ -603,6 +611,7 @@ void validToken_invalidToken() {
 - when: `TokenProvider.validToken()` 메서드로 유효한 토큰인지 검증
 - then: 반환값이 false인 것을 확인, 즉 유효하지 않은 토큰임
 
+<br>
 
 ### validToken() 검증 테스트
 ```
@@ -624,6 +633,7 @@ void validToken_validToken() {
 - when: `TokenProvider.validToken()` 메서드로 유효한 토큰인지 검증
 - then: 반환값이 true인 것을 확인, 즉 유효한 토큰임
 
+<br>
 
 ### getAuthentication() 검증 메서드
 ```
@@ -648,6 +658,7 @@ void getAuthentication() {
 - when: `TokenProvider.getAuthentication()` 메서드로 인증 객체를 반환
 - then: 반환받은 인증 객체의 유저 이름을 가져와 given절에서 설정한 subject값이 같은지 확인
 
+<br>
 
 ### getUserId() 검증 테스트
 ```
@@ -706,6 +717,7 @@ public class RefreshToken {
   }
 }
 ```
+<br>
 
 ## RefreshTokenRepository.java
 ```
@@ -714,6 +726,8 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
   Optional<RefreshToken> findByRefreshToken(String refreshToken);
 }
 ```
+
+<br>
 
 ## TokenAuthenticationFilter.java
 - 액세스 토큰값이 담긴 Authorization 헤더값을 가져온 뒤 액세스 토큰이 유효하다면 인증 정보를 설정
@@ -766,8 +780,8 @@ Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
 ---
 
-# 토큰 API 구현하기
-- `리프레시 토큰`을 전달받아 검증하고 유효한 `리프레시 토큰`이면 새로운 `엑세스 토큰`을 생성하는 API
+# ✅ 토큰 API 구현하기
+- `리프레시 토큰`을 전달받아 검증하고 유효한 `리프레시 토큰`이면 새로운 `액세스 토큰`을 생성하는 API
 
 ## UserService.java
 - 유저 ID로 유저를 검색해서 전달하는 findById() 메서드 추가
@@ -784,6 +798,8 @@ public class UserService {
 }
 ```
 
+<br>
+
 ## RefreshTokenService.java
 - 전달받은 `리프레시 토큰`으로 `리프레시 토큰 객체`를 검색해서 전달하는 `findByRefreshToken()` 메서드 구현
 
@@ -799,6 +815,8 @@ public class RefreshTokenService {
   }
 }
 ```
+
+<br>
 
 ## TokenService.java
 ```
@@ -826,4 +844,122 @@ public class TokenService {
 ### createNewAccessToken()
 - 전달받은 리프레시 토큰으로 토큰 유효성 검사를 진행
 - 유효한 토큰인 경우, 리프레시 토큰으로 사용자 ID를 찾음
-- `TokenProvider.generateToken()` 메서드로 새로운 엑세스 토큰을 발행
+- `TokenProvider.generateToken()` 메서드로 새로운 액세스 토큰을 발행
+
+<br>
+
+## 컨트롤러 추가
+- 토큰을 발급받는 API 생성
+
+### CreateAccessTokenRequest.java
+- 토큰 생성 요청 DTO
+
+```
+@Getter
+@Setter
+public class CreateAccessTokenRequest {
+  private String refreshToken;
+}
+```
+
+### CreateAccessTokenResponse.java
+- 토큰 생성 응답 DTO
+
+```
+@AllArgsConstructor
+@Getter
+public class CreateAccessTokenResponse {
+  private String accessToken;
+}
+```
+
+### TokenApiController.java
+- /api/token/ POST 요청
+- `토큰 서비스`에서 `리프레시 토큰`을 기반으로 새로운 `액세스 토큰`을 생성
+```
+@RequiredArgsConstructor
+@RestController
+public class TokenApiController {
+  private final TokenService tokenService;
+  
+  @PostMapping("/api/token")
+  public ResponseEntity<CreateAccessTokenResponse> createAccessToken
+          (@RequestBody createAccessTokenRequest request) {
+    String newAccessToken = tokenService.createNewAccessToken(request.getRefreshToken());
+    
+    return ResponseEntity.status(HttpStatus.CREATED)
+              .body(new CreateAccessTokenResponse(newAccessToken));
+  }
+} 
+```
+
+<br>
+
+## TokenApiControllerTest.java
+```
+@SpringBootTest
+@AutoConfigureMockMvc
+class TokenApiControllerTest {
+  @Autowired
+  protected MockMvc mockMvc;
+  
+  @Autowired
+  protected ObjectMapper objectMapper;
+  
+  @Autowired
+  private WebApplicationContext context;
+  
+  @Autowired
+  JwtProperties jwtProperties;
+  
+  @Autowired
+  UserRepository userRepository;
+  
+  @Autowired
+  RefreshTokenRepository refreshTokenRepository;
+  
+  @BeforeEach
+  public void mockMvcSetUp() {
+    this.mockMvc = MockMvcBuilders.webAppContextSetup(context)
+            .build();
+    userRepository.deleteAll();
+  }
+  
+  @DisplayName("createNewAccessToken: 새로운 액세스 토큰을 발급한다.")
+  @Test
+  void createNewAccessToken() throws Exception {
+    
+    // given
+    final String url = "/api/token";
+    
+    User testUser = userRepository.save(User.builder()
+            .email("user@gmail.com")
+            .password("test")
+            .build();
+    
+    String refreshToken = JwtFactory.builder()
+              .claims(Map.of("id", testUser.getId()))
+              .build()
+              .createToken(jwtProperties);
+    refreshTokenRepository.save(new RefreshToken(testUser.getId(), refreshToken());
+    
+    CreateAccessTokenRequest request = new CreateAccessTokenRequest();
+    request.setRefreshToken(refreshToken);
+    
+    final String requestBody = objectMapper.writeValueAsString(request);
+    
+    // when
+    ResultActions resultActions = mockMvc.perform(post(url)
+            .contentType(MediaType.APPLICATION_JSON_VALUE)
+            .content(requestBody));
+    
+    // then
+    resultActions
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.accessToken").isNotEmpty());
+}
+```
+- given: 테스트 유저 생성하고 리프레시 토큰을 만들어 데이터베이스 저장함. <br>
+토큰 생성 API의 요청 본문에 리프레시 토큰을 포함하여 요청 객체를 생성
+- when: 토큰 추가 API에 요청을 보냄
+- then: 응답 코드가 201 Created인지 확인하고 응답으로 온 액세스 토큰이 비어있지 않은지 확인

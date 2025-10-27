@@ -167,7 +167,7 @@ JWT 예
 
 ## 의존성 추가
 
-build.gradle
+### build.gradle
 
 - JWT를 사용하기 위한 라이브러리 추가
 - XML 문서와 자바 객체 간 매핑을 자동화하는 jax-api 추가
@@ -185,7 +185,7 @@ dependencies {
 
 ## 토큰 제공자 추가
 
-application.yml
+### application.yml
 
 - JWT 토큰을 만들려면 이슈 발급자와 비밀키를 필수로 설정해야함
 
@@ -212,7 +212,7 @@ jwt:
 
 <br>
 
-config/jwt/JwtProperties.java
+### config/jwt/JwtProperties.java
 
 - 해당 값들을 변수로 접근하는 데 사용할 JwtProperties 클래스를 생성
 
@@ -229,7 +229,8 @@ public class JwtProperties {
 ```
 
 <br>
-config/jwt/TokenProvider.java
+
+### config/jwt/TokenProvider.java
 
 - 토큰을 생성하고 올바른 토큰인지 유효성 검사
 - 토큰에서 필요한 정보를 가져오는 클래스
@@ -300,10 +301,529 @@ public class TokenProvider {
 }
 ```
 
-## Jwts.parser() 의 역할
-- `Jwts.builder()` 토큰을 생성하는 역할
-- `Jwts.parser()` 토큰을 읽고(파싱하고) 검증하는 역할
+<br>
+
+#### JWT 토큰 생성 메서드
+```
+private String makeToken(Date expiry, User user) {
+    Date now = new Date();
+
+    return Jwts.builder()
+            .setHeaderParam(Header.TYPE, Header.JWT_TYPE) // 헤더 typ: JWT
+            // 내용 iss: example@gmail.com(properties 파일에서 설정한 값)
+            .setIssuer(jwtProperties.getIssuer())
+            .setIssuedAt(now)       // 내용 iat: 현재 시간
+            .setExpiration(expiry)  // 내용 exp: expiry 멤버 변숫값
+            .setSubject(user.getEmail()) // 내용 sub: 유저의 이메일 (토큰 제목)
+            .claim("id", user.getId())   // 클레임 id: 유저 ID
+            // 서명: 비밀값과 함께 해시값을 HS256 방식으로 암호화
+            .signWith(SignatureAlgorithm.HS256, jwtProperties.getSecretKey())
+            .compact();
+}
+```
+- `인자 expiry: 만료시간, user: 유저 정보`
+- 헤더, 내용, 서명을 지정함
+
+<br>
+
+#### JWT 토큰 유효성 검증 메서드
+```
+public boolean validToken(String token) {
+    try {
+        Jwts.parser()
+                .setSigningKey(jwtProperties.getSecretKey()) // 비밀값으로 복호화
+                .parseClaimJws(token);
+        return true;
+    } catch (Exception e) { // 복호화 과정에서 에러가 나면 유효하지 않은 토큰
+        return false;
+    }
+}
+```
+- JwtProperties에 선언한 비밀값과 함께 토큰 복호화를 진행
+- 복호화 과정에서 유효하지 않은 토큰이면 false를 반환
+
+<br>
+
+#### 토큰 기반으로 인증 정보를 가져오는 메서드 
+```
+public Authentication getAuthentication(String token) {
+    Claims claims = getClaims(token);
+    Set<SimpleGrantedAuthority> authorities
+        = Collections.singleton(new SimpleGrantedAuthority("ROLE_USER"));
+
+    return new UsernamePasswordAuthenticationToken(
+            new org.springframework.security.core.userdetails.User(claims.getSubject(), "", authorities), // principal에 저장
+            token,        // credentials에 저장
+            authorities); // authorities에 저장 
+}
+```
+- `Authentication` → 인증 정보를 담은 객체
+  - `Principal` 사용자 정보 객체 (UserDetails)
+  - `Credentials` 인증에 사용된 값 (JWT 토큰)
+  - `Authorities` 사용자가 가진 권한 목록 (ROLE_USER)
+
+<br>
+
+- `new SimpleGrantedAuthority("ROLE_USER)`
+  - 스프링 시큐리티에서 권한을 나타내는 객체
+  - 문자열 "ROLE_USER" → 사용자 권한 이름
+  - SimpleGrantedAuthority → 이 문자열을 Spring Security가 이해할 수 있는 권한 객체로 감싸는 역할
+
+<br>
+
+- `UsernamePasswordAuthenticationToken` is-a `Authentication`
+  - `new org.springframework.security.core.userdetails.User(claims.getSubject(), "", authorities)` → principal에 저장
+  - `token` → credentials에 저장
+  - `authorities` → authorities에 저장
+
+<br>
+
+#### 토큰 기반으로 유저 ID를 가져오는 메서드
+```
+public Long getUserId(String token) {
+    Claims claims = getClaims(token);
+    return claims.get("id", Long.class);
+}
+```
+- getClaim() 메서드로 클레임 정보를 반환받고 클레임에서 id 키로 지정된 값을 가져와 반환
+
+<br>
+
+#### 클레임 정보 반환
+
+```
+private Claims getClaims(String token) {
+    return Jwts.parser() // 클레임 조회
+            .setSigningKey(jwtProperties.getSecretKey())
+            .parseClaimsJws(token)
+            .getBody();
+}
+```
+- `Jwts.parser()`
+  - 토큰을 읽고(파싱하고) 검증하는 역할
   - Header.Payload.Signature로 분리
   - Base64Url 디코딩해서 JSON 형태로 복원
   - setSigningKey(secretKey)로 서명을 검증해서 토큰 위조 여부 확인
   - Payload 안의 클레임(사용자 정보, 만료 시간 등)을 꺼내주는 과정
+
+<br>
+
+### test/config/jwt/JwtFactory.java
+- JWT 토큰 서비스를 테스트하는데 사용할 모킹(mocking)용 객체
+
+```
+@Getter
+public class JwtFactory {
+  private String subject = "test@gmail.com";
+  private Date issuedAt = new Date();
+  private Date expiration = new Date(new Date().getTime() + Duration.ofDays(14).toMillis());
+  private Map<String, Object> claims = emptyMap();
+  
+  // 빌더 패턴을 사용해 설정이 필요한 데이터만 선택 설정
+  @Builder
+  public JwtFactory(String subject, Date issuedAt, Date expiration,
+                    Map<String, Object> claims) {
+    this.subject = subject != null ? subject : this.subject;
+    this.issuedAt = issuedAt != null ? issuedAt : this.issuedAt;
+    this.expiration = expiration != null ? expiration : this.expiration;
+    this.claims = claims != null ? claims : this.claims;
+  }
+  
+  public static JwtFactory withDefaultValues() {
+    return JwtFactory.builder.build();
+  }
+  
+  // jjwt 라이브러리를 사용해 JWT 토큰 생성
+  public String createToken(JwtProperties jwtProperties) {
+    return Jwts.builder()
+            .setSubject(subject)
+            .setHeaderParam(Header.TYPE, Header.JWT_TYPE);
+            .setIssuer(jwtProperties.getIssuer())
+            .setIssuedAt(issuedAt)
+            .setExpiration(expiration)
+            .addClaims(claims)
+            .signWith(SignatureAlgorithm.HS256, jwtProperties.getSecretKey())
+            .compact();
+  }
+}
+```
+
+### test/config/jwt/TokenProvider.java
+
+```
+@SpringBootTest
+public class TokenProviderTest {
+
+    @Autowired
+    private TokenProvider tokenProvider;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JwtProperties jwtProperties;
+
+    // generateToken() 검증 테스트
+    @DisplayName("generateToken(): 유저 정보와 만료 기간을 전달해 토큰을 만들 수 있다.")
+    @Test
+    void generateToken() {
+        // given: 토큰에 유저 정보를 추가하기 위한 테스트 유저 생성
+        User testUser = userRepository.save(User.builder()
+                .email("user@gmail.com")
+                .password("test")
+                .build());
+
+        // when: 토큰 제공자의 generateToken() 메서드를 호출해 토큰을 생성
+        String token = tokenProvider.generateToken(testUser, Duration.ofDays(14));
+
+        // then: 토큰을 복호화하고 토큰을 만들 때 클레임으로 넣은 id값이 given절의 id와 같은지 확인
+        Long userId = Jwts.parser()
+                .setSigningKey(jwtProperties.getSecretKey())
+                .parseClaimsJws(token)
+                .getBody()
+                .get("id", Long.class);
+
+        assertThat(userId).isEqualTo(testUser.getUserId());
+    }
+
+    // validToken() 검증 테스트
+    @DisplayName("validToken(): 만료된 토큰인 때에 유효성 검증에 실패한다.")
+    @Test
+    void validToken_invalidToken() {
+        // given:
+        String token = JwtFactory.builder()
+                .expiration(new Date(new Date().getTime() - Duration.ofDays(7).toMillis()))
+                .build()
+                .createToken(jwtProperties);
+
+        // when
+        boolean result = tokenProvider.validToken(token);
+
+        // then
+        assertThat(result).isFalse();
+    }
+
+    @DisplayName("validToken(): 유효한 토큰인 때에 유효성 검증에 성공한다.")
+    @Test
+    void validToken_validToken() {
+        // given
+        String token = JwtFactory.withDefaultValues().createToken(jwtProperties);
+
+        // when
+        boolean result = tokenProvider.validToken(token);
+
+        // then
+        assertThat(result).isTrue();
+    }
+
+    // getAuthentication() 검증 테스트
+    @DisplayName("getAuthentication(): 토큰 기반으로 인증 정보를 가져올 수 있다.")
+    @Test
+    void getAuthentication() {
+        // given
+        String userEmail = "user@email.com";
+        String token = JwtFactory.builder()
+                .subject(userEmail)
+                .build()
+                .createToken(jwtProperties);
+
+        // when
+        Authentication authentication = tokenProvider.getAuthentication(token);
+
+        // then
+        assertThat(((UserDetails) authentication.getPrincipal()).getUsername()).isEqualTo(userEmail);
+    }
+
+    // getUserId() 검증 테스트
+    @DisplayName("getUserId(): 토큰으로 유저 ID를 가져올 수 있다.")
+    @Test
+    void getUserId() {
+        // given
+        Long userId = 1L;
+        String token = JwtFactory.builder()
+                .claims(Map.of("id", userId))
+                .build()
+                .createToken(jwtProperties);
+
+        // when
+        Long userIdByToken = tokenProvider.getUserId(token);
+
+        // then
+        assertThat(userIdByToken).isEqualTo(userId);
+    }
+} 
+```
+
+### generateToken() 검증 테스트
+```
+@DisplayName("generateToken(): 유저 정보와 만료 기간을 전달해 토큰을 만들 수 있다.")
+@Test
+void generateToken() {
+  // given
+  User testUser = userRepository.save(User.builder()
+           .email("user@gmail.com")
+           .password("test")
+           .build());
+  // when
+  String token = tokenProvider.generateToken(testUser, Duration.ofDays(14));
+  
+  // then
+  Long userId = Jwts.parser()
+          .setSigningKey(jwtProperties.getSecretKey())
+          .parseClaimsJws(token)
+          .getBody()
+          .get("id", Long.class);
+  assertThat(userId).isEqualTo(testUser.getId());
+}
+```
+- given: 토큰에 유저 정보를 추가하기 위한 `testUser` 생성
+- when: `TokenProvider.generateToken()` 메서드로 토큰 생성
+- then: 토큰을 복호화해서 꺼낸 클레임의 userId와 testUser의 userId가 같은지 확인
+
+
+### invalidToken() 검증 테스트
+```
+@DisplayName("validToken(): 만료된 토큰인 때에 유효성 검증에 실패한다.")
+@Test
+void validToken_invalidToken() {
+  // given
+  String token = JwtFactory.builder()
+          .expiration(new Date(new Date().getTime() - Duration.ofDays(7).toMillis()))
+          .build()
+          .createToken(jwtProperties);
+  
+  // when
+  boolean result = tokenProvider.validToken(token);
+  
+  // then
+  assertThat(result).isFalse();
+}
+```
+- given: 현재 시간으로부터 7일 전의 시간으로 유효 기간이 만료된 토큰을 생성
+- when: `TokenProvider.validToken()` 메서드로 유효한 토큰인지 검증
+- then: 반환값이 false인 것을 확인, 즉 유효하지 않은 토큰임
+
+
+### validToken() 검증 테스트
+```
+@DisplayName("validToken(): 유효한 토큰인 때에 유효성 검증에 성공한다.")
+@Test
+void validToken_validToken() {
+  // given
+  String token = JwtFactory.withDefaultValues()
+            .createToken(jwtProperties);
+  
+  // when
+  boolean result = tokenProvider.validToken(token);
+  
+  // then
+  assertThat(result).isTrue();
+}
+```
+- given: 현재 시간으로부터 14일 뒤로 만료되지 않은 토큰을 생성
+- when: `TokenProvider.validToken()` 메서드로 유효한 토큰인지 검증
+- then: 반환값이 true인 것을 확인, 즉 유효한 토큰임
+
+
+### getAuthentication() 검증 메서드
+```
+@DisplayName("getAuthentication(): 토큰 기반으로 인증 정보를 가져올 수 있다.");
+@Test
+void getAuthentication() {
+  // given
+  String userEmail = "user@email.com";
+  String token = JwtFactory.builder()
+          .subject(userEmail)
+          .build()
+          .createToken(jwtProperties);
+  
+  // when
+  Authentication authentication = tokenProvider.getAuthentication(token);
+  
+  // then
+  assertThat((UserDetails) authentication.getPrincipail()).getUsername()).isEqualTo(userEmail);
+}
+```
+- given: 토큰의 제목(subject)를 "user@email.com" 값을 사용해서 토큰 생성
+- when: `TokenProvider.getAuthentication()` 메서드로 인증 객체를 반환
+- then: 반환받은 인증 객체의 유저 이름을 가져와 given절에서 설정한 subject값이 같은지 확인
+
+
+### getUserId() 검증 테스트
+```
+@DisplayName("getUserId(): 토큰으로 유저 ID를 가져올 수 있다.")
+@Test
+void getUserId() {
+    // given
+    Long userId = 1L;
+    String token = JwtFactory.builder()
+            .claims(Map.of("id", userId))
+            .build()
+            .createToken(jwtProperties);
+
+    // when
+    Long userIdByToken = tokenProvider.getUserId(token);
+
+    // then
+    assertThat(userIdByToken).isEqualTo(userId);
+}
+```
+- given: id가 1인 클레임을 추가해서 토큰 생성
+- when: `TokenProvider.getUserId()` 메서드로 유저 ID 반환
+- then: 반환받은 유저 ID가 given절에서 설정한 유저 ID가 같은지 확인
+
+---
+
+# ✅ 리프레시 토큰 도메인 구현하기
+
+## domain/RefreshToken.java
+- 리프레시 토큰은 데이터베이스에 저장하는 정보이므로 엔티티를 생성
+```
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Getter
+@Entity
+public class RefreshToken {
+  
+  @Id
+  @GenerateValue(stragy = GenerationType.IDENTITY)
+  @Column(name = "id", updatable = false)
+  private Long id;
+  
+  @Column(name = "user_id", nullable = false, unique = true)
+  private Long userId;
+  
+  @Column(name = "refresh_token", nullable = false)
+  private String refreshToken;
+  
+  public RefreshToken(Long userId, String refreshToken) {
+    this.userId = userId;
+    this.refreshToken = refreshToken;
+  }
+  
+  public RefreshToken update(String newRefreshToken) {
+    this.refreshToken = newRefreshToken;
+    return this;
+  }
+}
+```
+
+## RefreshTokenRepository.java
+```
+public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+  Optional<RefreshToken> findByUserId(Long userId);
+  Optional<RefreshToken> findByRefreshToken(String refreshToken);
+}
+```
+
+## TokenAuthenticationFilter.java
+- 액세스 토큰값이 담긴 Authorization 헤더값을 가져온 뒤 액세스 토큰이 유효하다면 인증 정보를 설정
+  - 클라이언트가 보낸 요청 헤더에서 JWT 토큰을 꺼냄
+  - 토큰이 유효한지 검증
+  - 유효하면 인증 객체(Authentication)을 SecurityContext에 저장
+  - Security Context는 SecurityContextHolder에 저장됨
+```
+@RequiredArgsConstrctor
+public class TokenAuthenticationFilter extends OncePerRequestFilter {
+  private final TokenProvider tokenProvider;
+  private final static String HEADER_AUTHORIZATION = "Authorization";
+  private final static String TOKEN_PREFIX = "Bearer ";
+  
+  @Override
+  protected void doFilterInternal(
+              HttpServletRequest request,
+              HttpServletResponse response,
+              FilterChain filterChain) throws ServletException, IOException {
+      
+    // 요청 헤더의 Authorization 키의 값 조회
+    String authorizationHeader = request.getHeader(HEADER_AUTHORIZATION);
+    // 가져온 값에서 접두사 제거
+    String token = getAccessToken(authorizationHeader);
+    // 가져온 토큰이 유효한지 확인하고, 유효한 때는 인증 정보를 설정
+    if (tokenProvider.validToken(token)) {
+      Authentication authentication = tokenProvider.getAuthentication(token);
+      SecurityContextHolder.getContext().setAuthentication(authentication);
+    }
+    
+    filterChain.doFilter(request, response);
+  }
+  
+  private String getAccessToken(String authorizationHeader) {
+    if (authorizationHeader != null && authorizationHeader.startsWith(TOKEN_PREFIX)) {
+      return authorizationHeader.substring(TOKEN_PREFIX.length());
+    }
+    return null;
+  }
+}  
+```
+### SecurityContextHolder
+- SecurityContext를 스레드 단위로 저장
+  - 스레드 A → A 유저 정보만 저장
+- 요청마다 인증 정보를 분리해서 안전하게 보관하기 위함
+```
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+```
+- 컨트롤러에서 인증 정보를 꺼낼 때 어디서든 꺼내 쓸 수 있는 이유가 SecurityContextHolder가 관리하기 때문
+
+---
+
+# 토큰 API 구현하기
+- `리프레시 토큰`을 전달받아 검증하고 유효한 `리프레시 토큰`이면 새로운 `엑세스 토큰`을 생성하는 API
+
+## UserService.java
+- 유저 ID로 유저를 검색해서 전달하는 findById() 메서드 추가
+
+```
+@RequiredArgsConstructor
+@Service
+public class UserService {
+  ... 생략 ...
+  public User findById(Long userId) {
+    return userRepository.findById(userId)
+            .orElseThrow(() -> new IllegalArgumentException("Unexpected user"));
+  }
+}
+```
+
+## RefreshTokenService.java
+- 전달받은 `리프레시 토큰`으로 `리프레시 토큰 객체`를 검색해서 전달하는 `findByRefreshToken()` 메서드 구현
+
+```
+@RequiredArgsConstructor
+@Service
+public class RefreshTokenService {
+  private final RefreshTokenRepository refreshTokenRepository;
+  
+  public RefreshToken findByRefreshToken(String refreshToken) {
+    return refreshTokenRepository.findByRefreshToken(refreshToken)
+              .orElseThrow(() -> new IllegalArgumentException("Unexpected token"));
+  }
+}
+```
+
+## TokenService.java
+```
+@RequiredArgsConstructor
+@Service
+public class TokenService {
+  
+  private final TokenProvider tokenProvider;
+  private final RefreshTokenService refreshTokenService;
+  private final UserService userService;
+  
+  public String createNewAccessToken(String refrshToken) {
+    // 토큰 유효성 검사에 실패하면 예외 발생
+    if (!tokenProvider.validToken(refreshToken)) {
+      throw new IllegalArgumentException("Unexpected token");
+    }
+    
+    Long userId = refreshTokenService.findByRefreshToken(refreshToken).getUserId();
+    User user = userService.findById(userId);
+    return tokenProvider.generateToken(user, Duration.ofHours(2));
+  }
+}
+```
+
+### createNewAccessToken()
+- 전달받은 리프레시 토큰으로 토큰 유효성 검사를 진행
+- 유효한 토큰인 경우, 리프레시 토큰으로 사용자 ID를 찾음
+- `TokenProvider.generateToken()` 메서드로 새로운 엑세스 토큰을 발행

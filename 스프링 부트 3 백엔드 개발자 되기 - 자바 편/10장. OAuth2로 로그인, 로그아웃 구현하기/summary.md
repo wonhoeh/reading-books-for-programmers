@@ -479,3 +479,143 @@ public class OAuth2AuthorizationRequestBasedOnCookieRepository implements Author
     }
 }
 ````
+
+### 인증 성공 시 실행할 핸들러 구현하기
+
+UserService
+```
+package com.example.blogservice.service;
+
+import com.example.blogservice.domain.User;
+import com.example.blogservice.domain.repository.UserRepository;
+import com.example.blogservice.dto.AddUserRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+
+@RequiredArgsConstructor
+@Service
+public class UserService {
+
+    private final UserRepository userRepository;
+
+
+    public Long save(AddUserRequest addUserRequest) {
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+
+        User savedUser = userRepository.save(User.builder()
+                .email(addUserRequest.getEmail())
+                .password(encoder.encode(addUserRequest.getPassword()))
+                .build());
+        return savedUser.getUserId();
+    }
+
+    public User findById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Unexpected user"));
+    }
+
+    public User findByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Unexpected user"));
+    }
+}
+```
+- findByEmail() 메서드 수정
+  - BCryptPasswordEncoder 생성자를 사용해 직접 패스워드를 암호화 시킴
+
+confing/oauth/OAuth2SuccessHandler
+
+```
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
+    public static final String REFRESH_TOKEN_COOKIE_NAME = "refresh_token";
+    public static final Duration REFRESH_TOKEN_DURATION = Duration.ofDays(14);
+    public static final Duration ACCESS_TOKEN_DURATION = Duration.ofDays(1);
+    public static final String REDIRECT_PATH = "/articles";
+
+    private final TokenProvider tokenProvider;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final OAuth2AuthorizationRequestBasedOnCookieRepository authorizationRequestRepository;
+    private final UserService userService;
+
+
+    @Override
+    public void onAuthenticationSuccess(HttpServletRequest request,
+                                        HttpServletResponse response,
+                                        Authentication authentication) throws IOException {
+        OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
+        User user = userService.findByEmail((String) oAuth2User.getAttributes().get("email"));
+
+        log.info("OAuth2 로그인 성공! 사용자: {}", user.getNickname());
+        // 1. 리프레시 토큰 생성 -> 저장 -> 쿠키에 저장
+        String refreshToken = tokenProvider.generateToken(user, REFRESH_TOKEN_DURATION);
+        saveRefreshToken(user.getUserId(), refreshToken);
+        addRefreshTokenToCookie(request, response, refreshToken);
+        // 2. 액세스 토큰 생성 -> 패스에 액세스 토큰을 추가
+        String accessToken = tokenProvider.generateToken(user, ACCESS_TOKEN_DURATION);
+        String targetUrl = getTargetUrl(accessToken);
+        // 3. 인증 관련 설정값, 쿠키 제거
+        clearAuthenticationAttributes(request, response);
+        // 4. 리다이렉트
+        getRedirectStrategy().sendRedirect(request, response, targetUrl);
+    }
+
+    // 생성된 리프레시 토큰을 전달받아 데이터베이스에 저장
+    private void saveRefreshToken(Long userId, String newRefreshToken) {
+        RefreshToken refreshToken = refreshTokenRepository.findByUserId(userId)
+                .map(entity -> entity.update(newRefreshToken))
+                .orElse(new RefreshToken(userId, newRefreshToken));
+
+        refreshTokenRepository.save(refreshToken);
+    }
+
+    // 생성된 리프레시 토큰을 쿠키에 저장
+    private void addRefreshTokenToCookie(HttpServletRequest request,
+                                         HttpServletResponse response,
+                                         String refreshToken) {
+        int cookieMaxAge = (int) REFRESH_TOKEN_DURATION.toSeconds();
+        CookieUtil.deleteCookie(request, response, REFRESH_TOKEN_COOKIE_NAME);
+        CookieUtil.addCookie(response, REFRESH_TOKEN_COOKIE_NAME, refreshToken, cookieMaxAge);
+    }
+
+    // 인증 관련 설정값, 쿠키 제거
+    private void clearAuthenticationAttributes(HttpServletRequest request,
+                                               HttpServletResponse response) {
+        super.clearAuthenticationAttributes(request);
+        authorizationRequestRepository.removeAuthorizationRequestCookies(request, response);
+    }
+
+    // 액세스 토큰을 패스에 추가
+    private String getTargetUrl(String token) {
+        return UriComponentsBuilder.fromUriString(REDIRECT_PATH)
+                .queryParam("token", token)
+                .build()
+                .toUriString();
+    }
+}
+```
+
+- OAuth2 로그인 성공 시 실행되는 커스텀 성공 핸들러
+- 사용자가 카카오나 구글 등 외부 OAuth2 로그인 인증에 성공했을 때 이후 동작을 담당하는 후처리 로직 클래스
+  - 토큰 발급, 쿠키저장, 리다이렉션
+- 별도의 핸들러를 지정하지 않으면 SimpleUrlAuthenticationSuccessHandler를 사용함
+- 차이점은 일반적인 로직은 동일하게 사용하지만 토큰과 관련된 작업만 추가한 커스텀 핸들러를 등록한 것
+
+#### 1. 리프레시 토큰 생성, 저장 쿠키에 저장
+- 리프레시 토큰을 만들고 데이터베이스에 유저 아이디와 함께 저장함
+- 이후 액세스 토큰이 만료되면 재발급 요청하도록 쿠키에 리프레시 토큰을 저장함
+
+#### 2. 액세스 토큰 생성, 패스에 액세스 토큰 추가
+- 액세스 토큰을 만들고 
+- 쿠키에 리다이렉트 경로를 가져와 쿼리 파라미터에 액세스 토큰을 추가함
+```
+http://localhost:8080/articles?token=eyJ0eXAiOiJKV1QiLCJhbGci0i0iJUIzI1NiJ9.eyJpc3Mi0iJhanVmcmVzaEbnbWFpbC5j...
+```
+
+#### 3. 인증 관련 설정값, 쿠키 제거
+- 인증 프로세스를 진행하면서 세션가 쿠키에 임시로 저장해둔 인증 관련 데이터를 제거함
+- 기본적으로 제공하는 clearAuthenticationAttributes() 메서드는 그대로 호출하고
+- removeAuthorizationRequestCookie()를 추가로 호출해 OAuth 인증을 위해 저장된 정보도 삭제
